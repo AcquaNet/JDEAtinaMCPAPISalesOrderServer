@@ -1,0 +1,16 @@
+{
+    "classLoaderModelLoaderDescriptor": {
+        "attributes": {
+            "includeTestDependencies": "false",
+            "exportedResources": [
+                "log4j2.xml",
+                "salesforce-credentials.properties",
+                "jde-credentials-remote.properties",
+                "jde-credentials-local.properties"
+            ]
+        },
+        "id": "mule"
+    },
+    "minMuleVersion": "4.9.0",
+    "javaSpecificationVersions": ["17"]
+}
