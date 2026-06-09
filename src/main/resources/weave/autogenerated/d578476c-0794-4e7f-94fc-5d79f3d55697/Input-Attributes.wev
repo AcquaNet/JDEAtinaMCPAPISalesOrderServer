@@ -1,0 +1,23 @@
+%dw 2.0
+
+type auto_d578476c_0794_4e7f_94fc_5d79f3d55697_Input_Attributes = {|
+  clientCertificate?: {|
+    publicKey?: {|  |}, 
+    "type"?: String, 
+    encoded?: Binary
+  |}, 
+  headers: {| "X-Approver-Token": String |}, 
+  listenerPath: String, 
+  method: String, 
+  queryParams: {| customerNumber: Number |}, 
+  queryString: String, 
+  relativePath: String, 
+  remoteAddress: String, 
+  requestPath: String, 
+  requestUri: String, 
+  scheme: String, 
+  uriParams: {|  |}, 
+  version: String, 
+  localAddress: String
+|}
+
