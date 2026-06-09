@@ -1,4 +1,4 @@
 # ATINA JDE Connector Demo
 
-Service Layer for JDEAtinaMCPPurchaseServer base on Mulesoft
+Service Layer for Sales Order base on Mulesoft
 
