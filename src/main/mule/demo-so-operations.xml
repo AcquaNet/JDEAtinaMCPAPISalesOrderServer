@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:jdeatina="http://www.mulesoft.org/schema/mule/jdeatina"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/jdeatina http://www.mulesoft.org/schema/mule/jdeatina/current/mule-jdeatina.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+	<os:object-store name="Object_Store_Order" doc:name="Object store" doc:id="dd6258d9-5128-4afe-8d86-30f5d6f8685a" maxEntries="100" entryTtl="15" entryTtlUnit="MINUTES" expirationInterval="5" />
+	<flow name="login-flow" doc:id="a1952934-ec08-4f35-853f-be2938f72b73" >
+		<jdeatina:authenticate authenticateOperation="Login using User and Password" doc:name="Authenticate" doc:id="a9401f27-b206-4d0d-b86b-ab97bf8d3fb0" config-ref="JDE_Atina_Config_for_Web_Services" target="login">
+			<jdeatina:input-parameters ><![CDATA[#[output application/java
+---
+{
+	"JDE User": payload.user as String default "",
+	"JDE Password": payload.password  as String default "",
+	"JDE Environment": payload.environment as String default p('config.jdeEnvironment'),
+	"JDE Role": payload.role as String default p('config.jdeRole'),
+	"Session Id": 0,
+	"Transaction ID": 0,
+	"JDE WS Connection": false
+}]]]></jdeatina:input-parameters>
+		</jdeatina:authenticate>
+		<ee:transform doc:name="Transform Message" doc:id="99fdd475-1c71-4054-8983-fc6c84193dc1" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+import fromBase64 from dw::core::Binaries
+import seconds from dw::core::Periods
+output application/json
+var jwtToken = vars.login."JDE Token"
+var jwtPayload =
+    (jwtToken splitBy ".")[1]
+        then fromBase64($) as String
+        then read($, "application/json")
+var expSeconds = jwtPayload.exp default null
+var expDateTime =
+    if (expSeconds != null)
+        |1970-01-01T00:00:00Z| + seconds(expSeconds as Number)
+    else
+        null
+---
+{
+	environment: jwtPayload.user,
+	role: jwtPayload.role,
+	user: jwtPayload.user 
+} ++
+(
+    if (expDateTime != null)
+        {
+            expiresAt: expDateTime
+        }
+    else
+        {}
+)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable value='#[%dw 2.0&#10;output application/java&#10;---&#10;(vars.outboundHeaders default {}) &#10;++ { "X-Approver-Token": vars.login."JDE Token" }]' doc:name="Set Header Response" doc:id="7d9640e1-df85-4435-8b15-b4f047c33779" variableName="outboundHeaders" />
+		<logger level="INFO" doc:name="Logger" doc:id="dcbe43f7-e83e-4ca1-be14-b07c6aec3098" message="User Logged"/>
+	</flow>
+	<sub-flow name="demo-pur-operations-get-order" doc:id="037b4c51-1655-4146-8a47-b53c3ccd9ff9" >
+		<jdeatina:invoke-ws wsName="oracle.e1.bssv.JP430000.ProcurementManager.getPurchaseOrder" doc:name="Invoke ws getPurchaseOrdersForApprover" doc:id="a4e457c3-20e4-421a-a212-ddc55d84db38" config-ref="JDE_Atina_Config_for_Web_Services" target="order" >
+			<jdeatina:input-parameters ><![CDATA[#[output application/java
+---
+{
+	"JDE Token": vars.autenticate."JDE Token",
+	header: {
+		businessUnit: p('po.businessUnitCode'),
+		purchaseOrderKey: {
+			documentTypeCode: vars.parameters.documentOrderTypeCode,
+			documentNumber: vars.parameters.documentOrderInvoiceNumber,
+			documentCompany: vars.parameters.documentCompanyKeyOrderNo
+		}
+	}
+}]]]></jdeatina:input-parameters>
+		</jdeatina:invoke-ws>
+		<choice doc:name="Choice" doc:id="71a561d5-f6e8-440e-a693-1ab053521693" >
+			<when expression="#[vars.order == null or isEmpty(vars.order)]">
+				<raise-error doc:name="Raise error" doc:id="15af06ea-2b02-4a9c-b7fc-a0267c0ee7be" type="APP:NOT_FOUND" description="Purchase order not found"/>
+			</when>
+			<otherwise >
+				<ee:transform doc:name="Set Response" doc:id="ed5e34c9-ce88-44c7-b423-711c04a36ed1">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="orderRetrieved"><![CDATA[%dw 2.0
+output application/java
+
+var inputObject = vars.order.showPurchaseOrder[0] default {}
+
+---
+{
+    statusApproval: p("po.statusApproval"),
+    approvalRoutingCodePurchaseOrder: inputObject.header.approvedRoutingBy,
+    amountGross: inputObject.header.amountGross default 0,
+    businessUnitCode: inputObject.header.businessUnit
+}
+]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+			</otherwise>
+		</choice>
+	</sub-flow>
+	<flow name="demo-so-get-credit-information-flow" doc:id="d578476c-0794-4e7f-94fc-5d79f3d55697" >
+		<set-variable value="#[attributes.queryParams]" doc:name="Save Query Parameters" doc:id="d80112e2-1b76-440e-8dd7-3265de2bc5cf" variableName="parameters" />
+		<logger level="INFO" doc:name="Logger" doc:id="77601527-0348-4eeb-baa6-a6588d6d2831" message="Customer #[vars.parameters.customerNumber as Number]"/>
+		<jdeatina:authenticate authenticateOperation="Login using Token" doc:name="Authenticate" doc:id="f3271ccd-dafe-4fce-9b6a-b9459ea958c0" config-ref="JDE_Atina_Config_for_Web_Services">
+			<jdeatina:input-parameters><![CDATA[#[output application/java
+---
+{
+	"JDE Token": attributes.headers."X-Approver-Token" as String default "",
+	"Transaction ID": 0,
+	"JDE WS Connection": false
+}]]]></jdeatina:input-parameters>
+		</jdeatina:authenticate>
+		<jdeatina:invoke-bsfn wsName="CreditCheckProcessing" doc:name="Invoke BSFN Credit Check Processing" doc:id="e9af3351-e60c-42a3-b3e9-504f660f38c1" config-ref="JDE_Atina_Config_Non_WS_Operation" target="customerInfo">
+			<jdeatina:input-parameters ><![CDATA[#[output application/json
+---
+{
+	mnCustomerNumber: vars.parameters.customerNumber as Number,
+	szCompany: p('po.szCompany'),
+	szCurrencyCodeTo: p('po.szCurrencyCodeTo'),
+	cCreditCheckMode: '1'
+}]]]></jdeatina:input-parameters>
+		</jdeatina:invoke-bsfn>
+		<ee:transform doc:name="Set Response" doc:id="0dd325b2-9360-46bd-8236-f52561fdb7a5" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var jdeValues = vars.customerInfo
+---
+{
+  customerNumber: jdeValues.mnCustomerNumber,
+  company: jdeValues.szCompany,
+  currencyCode: jdeValues.szCurrencyCodeTo,
+  creditLimitAmount: jdeValues.mnAmountCreditLimit,
+  totalExposureAmount: jdeValues.mnAmountTotalExposure
+}
+]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+		<set-variable value='#[%dw 2.0&#10;output application/java&#10;---&#10;(vars.outboundHeaders default {}) &#10;++ { "X-Approver-Token": vars.customerInfo."JDE Token" }]' doc:name="Set Header Response" doc:id="94a6a1b5-0928-498f-8771-0ad5c7a84c65" variableName="outboundHeaders" />
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="9aa9bcb8-f79f-44fa-b873-8ff17ec1a42a" type="JDEATINA:ERROR_INVOKING_BSFN" >
+				<raise-error doc:name="Raise error" doc:id="b6d7ea55-4928-4667-87b0-cf6a3ac9eb14" type="APP:ERROR_WS_GETPENDING" description="Error getting pending purchase order" />
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+</mule>

@@ -1,0 +1,269 @@
+#%RAML 1.0
+title: JDE Atina Connector Demo
+version: v1
+documentation:
+ - title: Home
+   content: |
+     Showing Atina JDE Connector.  
+
+/v1:
+  /login:
+    post:
+      description: |
+        Authenticates a JDE user through the Atina microservice and returns a session token
+        in the X-Approver-Token response header.
+        This endpoint must be called before any other operation.
+        The returned token must be included in the X-Approver-Token header on all subsequent requests.
+      body:
+        application/json:
+          type: |
+            {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "type": "string",
+                  "displayName": "JDE Username",
+                  "description": "JDE username. Stored as uppercase."
+                },
+                "password": {
+                  "type": "string",
+                  "displayName": "JDE Password",
+                  "description": "JDE password."
+                },
+                "environment": {
+                  "type": "string",
+                  "displayName": "JDE Environment",
+                  "description": "JDE environment name. Defaults to JDV920 if not provided.",
+                  "default": "JDV920"
+                },
+                "role": {
+                  "type": "string",
+                  "displayName": "JDE Role",
+                  "description": "JDE role. Use *ALL to inherit all roles assigned to the user.",
+                  "default": "*ALL"
+                }
+              },
+              "required": ["user", "password"]
+            }
+          example: |
+            {
+              "user": "JDE",
+              "password": "MyPass123!",
+              "environment": "JDV920",
+              "role": "*ALL"
+            }
+      responses:
+        200:
+          description: Authentication successful.
+          headers:
+            X-Approver-Token:
+              displayName: Approver Token
+              type: string
+              required: true
+              description: >
+                JDE session token for this user. Store this value and send it
+                in the X-Approver-Token header on every subsequent request.
+          body:
+            application/json:
+              type: |
+                {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "string",
+                      "description": "Authenticated JDE username (uppercase)."
+                    },
+                    "environment": {
+                      "type": "string",
+                      "description": "JDE environment the session was opened against."
+                    },
+                    "role": {
+                      "type": "string",
+                      "description": "JDE role applied to this session."
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "description": "ISO-8601 datetime when the token expires."
+                    }
+                  }
+                }
+              example: |
+                {
+                  "user": "JDOE",
+                  "environment": "JDV920",
+                  "role": "*ALL",
+                  "expiresAt": "2025-05-24T18:30:00Z"
+                }
+        401:
+          description: Invalid JDE credentials.
+          body:
+            application/json:
+              type: |
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              example: |
+                {
+                  "code": "INVALID_CREDENTIALS",
+                  "message": "Authentication failed for user JDOE. Please verify username and password."
+                }
+        503:
+          description: Atina gRPC microservice unavailable.
+          
+  /getCustomerCreditFinancialInfo:
+    get:
+      description: |
+        Retrieves customer financial credit information from JDE Sales Order.
+        This operation uses the JDE credit check logic to return the customer's
+        credit limit and total exposure/debt amount.
+
+        This endpoint is intended to be used as the frontend API for an MCP Server
+        tool related to Sales Order customer credit and debt information.
+
+      headers:
+        X-Approver-Token:
+          displayName: Approver Token
+          type: string
+          required: true
+          description: Custom token that identifies the JDE user/session in Atina Microservice.
+
+      queryParameters:
+        customerNumber:
+          displayName: Customer Number
+          type: integer
+          required: true
+          description: JDE Address Book number of the customer.
+          example: 4242
+ 
+      responses:
+        200:
+          description: Customer credit financial information successfully retrieved.
+          headers:
+            X-Approver-Token:
+              displayName: JDE Token
+              type: string
+              required: false
+              description: >
+                New or refreshed JDE session token. Clients should store and send this
+                token in subsequent requests where required.
+          body:
+            application/json:
+              type: |
+                {
+                  "type": "object",
+                  "properties": {
+                    "customerNumber": {
+                      "type": "integer",
+                      "description": "JDE Address Book number of the customer."
+                    },
+                    "company": {
+                      "type": "string",
+                      "description": "JDE company used for the credit check."
+                    },
+                    "currencyCode": {
+                      "type": "string",
+                      "description": "Currency code of the returned amounts."
+                    },
+                    "creditLimitAmount": {
+                      "type": "number",
+                      "description": "Customer credit limit amount returned by JDE."
+                    },
+                    "totalExposureAmount": {
+                      "type": "number",
+                      "description": "Total exposure/debt amount for the customer returned by JDE."
+                    }
+                  },
+                  "required": [
+                    "customerNumber",
+                    "company",
+                    "currencyCode",
+                    "creditLimitAmount",
+                    "totalExposureAmount"
+                  ]
+                }
+              example: |
+                {
+                  "customerNumber": 4242,
+                  "company": "00000",
+                  "currencyCode": "USD",
+                  "creditLimitAmount": 50000,
+                  "totalExposureAmount": 2454092.68
+                }
+
+        400:
+          description: Invalid request parameters.
+          body:
+            application/json:
+              type: |
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              example: |
+                {
+                  "code": "INVALID_REQUEST",
+                  "message": "customerNumber is required and must be a valid JDE customer number."
+                }
+
+        401:
+          description: Invalid or expired JDE session token.
+          body:
+            application/json:
+              type: |
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              example: |
+                {
+                  "code": "INVALID_TOKEN",
+                  "message": "The JDE session token is invalid or expired."
+                }
+
+        404:
+          description: Customer credit information not found.
+          body:
+            application/json:
+              type: |
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              example: |
+                {
+                  "code": "CUSTOMER_CREDIT_INFO_NOT_FOUND",
+                  "message": "No credit information was found for customer 4242."
+                }
+
+        503:
+          description: Atina gRPC microservice or JDE service unavailable.
+          body:
+            application/json:
+              type: |
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              example: |
+                {
+                  "code": "JDE_SERVICE_UNAVAILABLE",
+                  "message": "Unable to retrieve customer credit information from JDE."
+                }
+
+ 
